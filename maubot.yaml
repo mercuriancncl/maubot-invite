@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# The unique ID for this plugin.
+# Java-style reverse domain naming ensures no conflicts with other plugins.
+id: com.example.invitebot
+
+# PEP 440 compliant version string
+version: 1.0.0
+
+# SPDX license identifier
+license: AGPL-3.0-or-later
+
+# The Python module(s) to load from the archive (filename without .py)
+modules:
+- invitebot
+
+# The main class. Format: module/ClassName
+main_class: invitebot/InviteBot
+
+# Tells maubot this plugin has a config file (base-config.yaml)
+config: true
+
+# Tells maubot this plugin uses a database
+database: true
+
+# Extra files to include in the .mbp archive when building
+extra_files:
+- base-config.yaml

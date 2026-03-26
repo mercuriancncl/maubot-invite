@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────
+# InviteBot Configuration
+# Edit these values in the maubot web UI after uploading.
+# ─────────────────────────────────────────────────────────
+
+# The secret phrase guests must type to receive an invite.
+# NOT case-sensitive. Can also be changed live with !setphrase.
+invite_phrase: "I'd like to join"
+
+# List of Matrix Room IDs or Space IDs to invite the user to.
+# Find a room's ID in your Matrix client: Room Settings > Advanced.
+# Format: !someRandomString:your.server.com
+invite_rooms:
+  - "!yourPrivateSpaceId:your.server.com"
+  - "!anotherRoomId:your.server.com"
+
+# If true, the bot DMs the user instead of replying publicly in the Welcome room.
+quiet_mode: false
+
+# Message sent after a successful invite.
+# {user} = their Matrix ID, {rooms} = number of rooms invited to
+success_message: "Hi {user}! 👋 I've sent you {rooms} invite(s) to our private community. Check your invites!"
+
+# Message sent if the user has already been invited.
+already_invited_message: "Hi {user}! It looks like you've already been invited. Check your pending invites, or contact an admin if you need help."
+
+# Message sent if something goes wrong sending the invite.
+error_message: "Sorry {user}, something went wrong sending your invite. Please contact an admin."
+
+# Matrix user IDs allowed to use admin commands (!setphrase, !status, etc.)
+# Format: @username:your.server.com
+admins:
+  - "@youradmin:your.server.com"
