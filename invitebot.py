@@ -102,9 +102,10 @@ class InviteBot(Plugin):
         user_id = evt.sender
 
         # Check whether this user has already been invited (anti-spam).
-        row = await self.database.fetchrow(
-            "SELECT user_id FROM invited_users WHERE user_id = $1", user_id
-        )
+        async with self.database.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT user_id FROM invited_users WHERE user_id = $1", user_id
+            )
         if row:
             msg = self.config["already_invited_message"].format(user=user_id)
             await self._send_response(evt, user_id, msg)
@@ -122,11 +123,11 @@ class InviteBot(Plugin):
 
         if success_count > 0:
             # Record the invite in the database to prevent repeat invites.
-            await self.database.execute(
-                "INSERT INTO invited_users (user_id, invited_at) VALUES ($1, $2)",
-                user_id,
-                time.time(),
-            )
+            async with self.database.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO invited_users (user_id, invited_at) VALUES ($1, $2)",
+                    user_id, time.time(),
+                )
             msg = self.config["success_message"].format(
                 user=user_id, rooms=success_count
             )
@@ -190,7 +191,8 @@ class InviteBot(Plugin):
         if not self._is_admin(evt.sender):
             await evt.reply("❌ You don't have permission to use this command.")
             return
-        count = await self.database.fetchval("SELECT COUNT(*) FROM invited_users")
+        async with self.database.acquire() as conn:
+            count = await conn.fetchval("SELECT COUNT(*) FROM invited_users")
         rooms = self.config["invite_rooms"]
         phrase = self.config["invite_phrase"]
         quiet = self.config["quiet_mode"]
@@ -214,9 +216,10 @@ class InviteBot(Plugin):
         user_id = UserID(user)
 
         # Remove from database so the user can be invited again.
-        await self.database.execute(
-            "DELETE FROM invited_users WHERE user_id = $1", user_id
-        )
+        async with self.database.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM invited_users WHERE user_id = $1", user_id
+            )
 
         rooms = self.config["invite_rooms"]
         success_count = 0
@@ -228,11 +231,11 @@ class InviteBot(Plugin):
                 self.log.exception(f"Failed to invite {user_id} to {room_id}")
 
         if success_count > 0:
-            await self.database.execute(
-                "INSERT INTO invited_users (user_id, invited_at) VALUES ($1, $2)",
-                user_id,
-                time.time(),
-            )
+            async with self.database.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO invited_users (user_id, invited_at) VALUES ($1, $2)",
+                    user_id, time.time(),
+                )
             await evt.reply(f"✅ Re-invited {user_id} to {success_count} room(s).")
         else:
             await evt.reply(f"❌ Failed to re-invite {user_id}.")

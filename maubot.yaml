@@ -20,8 +20,9 @@ main_class: invitebot/InviteBot
 # Tells maubot this plugin has a config file (base-config.yaml)
 config: true
 
-# Tells maubot this plugin uses a database
+# Tells maubot this plugin uses a database (asyncpg interface required for async DB access)
 database: true
+database_type: asyncpg
 
 # Extra files to include in the .mbp archive when building
 extra_files:

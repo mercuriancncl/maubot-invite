@@ -18,11 +18,28 @@ A [maubot](https://github.com/maubot/maubot) plugin that invites guests to a pri
 
 1. Download the latest `.mbp` release (or build it yourself with `mbc build`).
 2. Upload the plugin in the maubot web interface.
-3. Create an instance and edit the configuration:
+3. Create an instance and assign the bot's Matrix client.
+4. Edit the instance configuration:
    - Set `invite_phrase` to your secret trigger phrase.
-   - Add your private room/space IDs to `invite_rooms`.
+   - Add your private room/space IDs to `invite_rooms` (see **Room IDs** below).
    - Add admin Matrix IDs to `admins`.
-4. Invite the bot to your public Welcome room.
+5. Invite the bot to your public Welcome room.
+6. Invite the bot to each private room/space in `invite_rooms` and ensure it has **power level 50** (Moderator) so it can send invites.
+
+---
+
+## Room IDs
+
+Room IDs must be quoted in YAML because they start with `!`, which is a YAML tag indicator.
+
+To find a room's ID: open the room in your Matrix client → **Room Settings → Advanced**.
+
+> **Note:** On some Synapse deployments the room ID stored internally does **not** include the `:server` suffix even for local rooms. If the bot reports `Unknown room` when inviting, try using the bare ID (e.g. `"!abcXYZ123"`) instead of the full `"!abcXYZ123:your.server.com"` form.
+
+```yaml
+invite_rooms:
+  - "!yourPrivateSpaceId:your.server.com"
+```
 
 ---
 
@@ -56,6 +73,12 @@ A [maubot](https://github.com/maubot/maubot) plugin that invites guests to a pri
 pip install maubot
 mbc build
 ```
+
+---
+
+## Compatibility
+
+Requires maubot with the **asyncpg** database interface (`database_type: asyncpg` in `maubot.yaml`). This is supported by maubot 0.4.0+ with either SQLite or PostgreSQL plugin databases.
 
 ---
 
