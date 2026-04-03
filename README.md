@@ -11,7 +11,8 @@ A [maubot](https://github.com/maubot/maubot) plugin that invites guests to a pri
 - **Anti-spam** — persistent database storage prevents duplicate invites
 - **Quiet mode** — optionally DM the user instead of replying in the public room
 - **Auto-cleanup** — optionally delete the trigger message and bot response once the user joins
-- **Admin commands** — live phrase updates, status reporting, and forced re-invites
+- **Welcome announcements** — post a user-defined message (with a Matrix mention pill) to one or more rooms when a new member accepts an invite; each user is announced at most once
+- **Admin commands** — live phrase/welcome-message updates, status reporting, and forced re-invites
 
 ---
 
@@ -56,16 +57,19 @@ invite_rooms:
 | `already_invited_message` | _(see base-config.yaml)_             | Message sent if user was already invited             |
 | `error_message`           | _(see base-config.yaml)_             | Message sent if invite fails                         |
 | `admins`                  | _(empty)_                            | Matrix IDs allowed to use admin commands             |
+| `welcome_rooms`           | `[]`                                 | Rooms to post the welcome announcement in (can overlap with `invite_rooms`); leave empty to disable |
+| `welcome_message`         | `"🎉 Please welcome {user} to the community!"` | Announcement text; `{user}` is replaced with a clickable Matrix mention pill |
 
 ---
 
 ## Admin Commands
 
-| Command                  | Description                              |
-|--------------------------|------------------------------------------|
-| `!setphrase <new phrase>`| Update the trigger phrase live           |
-| `!status`                | Show current config and invite count     |
-| `!reinvite <@user:host>` | Re-send invites to a previously invited user |
+| Command                       | Description                              |
+|-------------------------------|------------------------------------------|
+| `!setphrase <new phrase>`     | Update the trigger phrase live           |
+| `!setwelcome <new message>`   | Update the welcome announcement message live (`{user}` = mention pill) |
+| `!status`                     | Show current config, invite count, welcome rooms, and welcome message |
+| `!reinvite <@user:host>`      | Re-send invites to a previously invited user |
 
 ---
 
