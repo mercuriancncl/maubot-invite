@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import time
 from typing import Type
 
@@ -56,6 +57,15 @@ async def upgrade_v2(conn: Connection) -> None:
         )"""
     )
 
+@upgrade_table.register(description="Add welcomed_users table for new-member announcements")
+async def upgrade_v3(conn: Connection) -> None:
+    await conn.execute(
+        """CREATE TABLE IF NOT EXISTS welcomed_users (
+            user_id      TEXT PRIMARY KEY,
+            welcomed_at  REAL NOT NULL
+        )"""
+    )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG CLASS
@@ -74,6 +84,8 @@ class Config(BaseProxyConfig):
         helper.copy("already_invited_message")
         helper.copy("error_message")
         helper.copy("admins")
+        helper.copy("welcome_rooms")
+        helper.copy("welcome_message")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -175,40 +187,82 @@ class InviteBot(Plugin):
 
     @event.on(EventType.ROOM_MEMBER)
     async def on_member(self, evt: StateEvent) -> None:
-        if not self.config["delete_after_join"]:
-            return
         if evt.content.membership != Membership.JOIN:
             return
         if str(evt.room_id) not in self.config["invite_rooms"]:
             return
 
         user_id = UserID(evt.state_key)
+
+        # ── delete_after_join cleanup ────────────────────────────────────────
+        if self.config["delete_after_join"]:
+            async with self.database.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT trigger_room_id, trigger_event_id, response_event_id"
+                    " FROM pending_cleanups WHERE user_id = $1",
+                    user_id,
+                )
+                if row:
+                    await conn.execute(
+                        "DELETE FROM pending_cleanups WHERE user_id = $1", user_id
+                    )
+
+            if row:
+                trigger_room = RoomID(row["trigger_room_id"])
+                trigger_evt = EventID(row["trigger_event_id"])
+                response_evt = EventID(row["response_event_id"]) if row["response_event_id"] else None
+
+                try:
+                    await self.client.redact(trigger_room, trigger_evt)
+                except Exception:
+                    self.log.warning(f"Could not redact trigger message {trigger_evt} in {trigger_room}")
+
+                if response_evt:
+                    try:
+                        await self.client.redact(trigger_room, response_evt)
+                    except Exception:
+                        self.log.warning(f"Could not redact response message {response_evt} in {trigger_room}")
+
+        # ── welcome announcement ─────────────────────────────────────────────
+        welcome_rooms = self.config["welcome_rooms"]
+        welcome_message = self.config["welcome_message"]
+        if not welcome_rooms or not welcome_message:
+            return
+
         async with self.database.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT trigger_room_id, trigger_event_id, response_event_id"
-                " FROM pending_cleanups WHERE user_id = $1",
-                user_id,
+            already_welcomed = await conn.fetchrow(
+                "SELECT user_id FROM welcomed_users WHERE user_id = $1", user_id
             )
-            if not row:
+            if already_welcomed:
                 return
             await conn.execute(
-                "DELETE FROM pending_cleanups WHERE user_id = $1", user_id
+                "INSERT INTO welcomed_users (user_id, welcomed_at) VALUES ($1, $2)",
+                user_id, time.time(),
             )
 
-        trigger_room = RoomID(row["trigger_room_id"])
-        trigger_evt = EventID(row["trigger_event_id"])
-        response_evt = EventID(row["response_event_id"]) if row["response_event_id"] else None
-
         try:
-            await self.client.redact(trigger_room, trigger_evt)
+            display_name = await self.client.get_displayname(user_id)
         except Exception:
-            self.log.warning(f"Could not redact trigger message {trigger_evt} in {trigger_room}")
+            display_name = user_id
 
-        if response_evt:
+        mention_html = f'<a href="https://matrix.to/#/{user_id}">{html.escape(display_name)}</a>'
+        plain_body = welcome_message.format(user=display_name)
+        html_body = welcome_message.format(user=mention_html)
+
+        for room_id in welcome_rooms:
             try:
-                await self.client.redact(trigger_room, response_evt)
+                await self.client.send_message_event(
+                    RoomID(room_id),
+                    EventType.ROOM_MESSAGE,
+                    {
+                        "msgtype": "m.text",
+                        "body": plain_body,
+                        "format": "org.matrix.custom.html",
+                        "formatted_body": html_body,
+                    },
+                )
             except Exception:
-                self.log.warning(f"Could not redact response message {response_evt} in {trigger_room}")
+                self.log.warning(f"Could not send welcome message to {room_id} for {user_id}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPER: send a reply or a DM depending on quiet_mode
@@ -271,13 +325,27 @@ class InviteBot(Plugin):
         rooms = self.config["invite_rooms"]
         phrase = self.config["invite_phrase"]
         quiet = self.config["quiet_mode"]
+        welcome_rooms = self.config["welcome_rooms"]
+        welcome_message = self.config["welcome_message"]
         await evt.reply(
             f"**InviteBot Status**\n"
             f"- Trigger phrase: `{phrase}`\n"
             f"- Rooms configured: {len(rooms)}\n"
             f"- Total invited: {count}\n"
-            f"- Quiet mode: {'on' if quiet else 'off'}"
+            f"- Quiet mode: {'on' if quiet else 'off'}\n"
+            f"- Welcome rooms: {len(welcome_rooms or [])}\n"
+            f"- Welcome message: `{welcome_message}`"
         )
+
+    @command.new("setwelcome", help="Set the welcome announcement message (admin only)")
+    @command.argument("message", pass_raw=True, required=True)
+    async def cmd_set_welcome(self, evt: MessageEvent, message: str) -> None:
+        if not self._is_admin(evt.sender):
+            await evt.reply("❌ You don't have permission to use this command.")
+            return
+        self.config["welcome_message"] = message
+        self.config.save()
+        await evt.reply(f"✅ Welcome message updated to: **{message}**")
 
     @command.new("reinvite", help="Re-invite a user who was already invited (admin only)")
     @command.argument("user", required=True)

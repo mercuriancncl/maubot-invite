@@ -36,3 +36,14 @@ error_message: "Sorry {user}, something went wrong sending your invite. Please c
 # Format: @username:your.server.com
 admins:
   - "@youradmin:your.server.com"
+
+# List of Matrix Room IDs where the welcome announcement will be posted
+# after a new member joins an invite_rooms room.
+# Can be the same as or different from invite_rooms.
+# Leave empty [] to disable announcements.
+welcome_rooms: []
+
+# Message posted in welcome_rooms when a new member joins.
+# {user} is replaced with a Matrix mention pill (@displayname).
+# Supports plain text; {user} becomes a proper Matrix mention.
+welcome_message: "🎉 Please welcome {user} to the community!"
