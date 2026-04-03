@@ -10,6 +10,7 @@ A [maubot](https://github.com/maubot/maubot) plugin that invites guests to a pri
 - **Multi-room support** — invite users to one or more private rooms/spaces at once
 - **Anti-spam** — persistent database storage prevents duplicate invites
 - **Quiet mode** — optionally DM the user instead of replying in the public room
+- **Auto-cleanup** — optionally delete the trigger message and bot response once the user joins
 - **Admin commands** — live phrase updates, status reporting, and forced re-invites
 
 ---
@@ -50,6 +51,7 @@ invite_rooms:
 | `invite_phrase`           | `"I'd like to join"`                 | The trigger phrase (case-insensitive)                |
 | `invite_rooms`            | _(example IDs)_                      | List of room/space IDs to invite the user to         |
 | `quiet_mode`              | `false`                              | DM the user instead of replying publicly             |
+| `delete_after_join`       | `false`                              | Redact the trigger message and bot response once the user joins an invite room (requires the bot to have moderator power level in the welcome room) |
 | `success_message`         | _(see base-config.yaml)_             | Message sent on successful invite (`{user}`, `{rooms}`) |
 | `already_invited_message` | _(see base-config.yaml)_             | Message sent if user was already invited             |
 | `error_message`           | _(see base-config.yaml)_             | Message sent if invite fails                         |
