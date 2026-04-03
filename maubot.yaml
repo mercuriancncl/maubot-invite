@@ -5,7 +5,7 @@
 id: com.example.invitebot
 
 # PEP 440 compliant version string
-version: 1.0.0
+version: 1.1.0
 
 # SPDX license identifier
 license: AGPL-3.0-or-later

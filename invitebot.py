@@ -6,10 +6,12 @@
 # storage, and admin commands.
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Type
 
-from mautrix.types import EventType, RoomID, UserID
+from mautrix.errors import MForbidden, MLimitExceeded
+from mautrix.types import EventID, EventType, Membership, RoomID, StateEvent, UserID
 from mautrix.util.async_db import UpgradeTable, Connection
 from mautrix.util.config import BaseProxyConfig, ConfigUpdateHelper
 
@@ -43,6 +45,18 @@ async def upgrade_v1(conn: Connection) -> None:
     )
 
 
+@upgrade_table.register(description="Add pending_cleanups table for post-join message deletion")
+async def upgrade_v2(conn: Connection) -> None:
+    await conn.execute(
+        """CREATE TABLE IF NOT EXISTS pending_cleanups (
+            user_id           TEXT PRIMARY KEY,
+            trigger_room_id   TEXT NOT NULL,
+            trigger_event_id  TEXT NOT NULL,
+            response_event_id TEXT
+        )"""
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG CLASS
 #
@@ -55,6 +69,7 @@ class Config(BaseProxyConfig):
         helper.copy("invite_phrase")
         helper.copy("invite_rooms")
         helper.copy("quiet_mode")
+        helper.copy("delete_after_join")
         helper.copy("success_message")
         helper.copy("already_invited_message")
         helper.copy("error_message")
@@ -134,7 +149,66 @@ class InviteBot(Plugin):
         else:
             msg = self.config["error_message"].format(user=user_id)
 
-        await self._send_response(evt, user_id, msg)
+        response_evt_id = await self._send_response(evt, user_id, msg)
+
+        if self.config["delete_after_join"] and success_count > 0:
+            async with self.database.acquire() as conn:
+                await conn.execute(
+                    """INSERT INTO pending_cleanups
+                           (user_id, trigger_room_id, trigger_event_id, response_event_id)
+                       VALUES ($1, $2, $3, $4)
+                       ON CONFLICT (user_id) DO UPDATE SET
+                           trigger_room_id   = excluded.trigger_room_id,
+                           trigger_event_id  = excluded.trigger_event_id,
+                           response_event_id = excluded.response_event_id""",
+                    user_id, str(evt.room_id), str(evt.event_id),
+                    str(response_evt_id) if response_evt_id else None,
+                )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MEMBER JOIN HANDLER
+    #
+    # When delete_after_join is enabled, watches for the invited user joining
+    # any of the configured invite_rooms, then redacts the trigger message and
+    # the bot's own response from the welcome room.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @event.on(EventType.ROOM_MEMBER)
+    async def on_member(self, evt: StateEvent) -> None:
+        if not self.config["delete_after_join"]:
+            return
+        if evt.content.membership != Membership.JOIN:
+            return
+        if str(evt.room_id) not in self.config["invite_rooms"]:
+            return
+
+        user_id = UserID(evt.state_key)
+        async with self.database.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT trigger_room_id, trigger_event_id, response_event_id"
+                " FROM pending_cleanups WHERE user_id = $1",
+                user_id,
+            )
+            if not row:
+                return
+            await conn.execute(
+                "DELETE FROM pending_cleanups WHERE user_id = $1", user_id
+            )
+
+        trigger_room = RoomID(row["trigger_room_id"])
+        trigger_evt = EventID(row["trigger_event_id"])
+        response_evt = EventID(row["response_event_id"]) if row["response_event_id"] else None
+
+        try:
+            await self.client.redact(trigger_room, trigger_evt)
+        except Exception:
+            self.log.warning(f"Could not redact trigger message {trigger_evt} in {trigger_room}")
+
+        if response_evt:
+            try:
+                await self.client.redact(trigger_room, response_evt)
+            except Exception:
+                self.log.warning(f"Could not redact response message {response_evt} in {trigger_room}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # HELPER: send a reply or a DM depending on quiet_mode
@@ -153,7 +227,7 @@ class InviteBot(Plugin):
 
     async def _send_response(
         self, evt: MessageEvent, user_id: UserID, message: str
-    ) -> None:
+    ) -> EventID | None:
         if self.config["quiet_mode"]:
             # DM the user privately instead of replying in the public room.
             # Reuse an existing DM room if one already exists to avoid duplicates.
@@ -162,8 +236,9 @@ class InviteBot(Plugin):
                 await self.client.send_text(dm_room, message)
             except Exception:
                 self.log.exception(f"Failed to send DM to {user_id}")
+            return None
         else:
-            await evt.reply(message)
+            return await evt.reply(message)
 
     # ─────────────────────────────────────────────────────────────────────────
     # ADMIN HELPERS
@@ -224,11 +299,31 @@ class InviteBot(Plugin):
         rooms = self.config["invite_rooms"]
         success_count = 0
         for room_id in rooms:
-            try:
-                await self.client.invite_user(RoomID(room_id), user_id)
-                success_count += 1
-            except Exception:
-                self.log.exception(f"Failed to invite {user_id} to {room_id}")
+            retries = 2
+            while retries > 0:
+                try:
+                    await self.client.invite_user(RoomID(room_id), user_id)
+                    success_count += 1
+                    break
+                except MForbidden as e:
+                    if "already in the room" in str(e):
+                        self.log.debug(f"{user_id} is already in {room_id}, skipping")
+                        success_count += 1
+                    else:
+                        self.log.warning(f"No permission to invite {user_id} to {room_id}: {e}")
+                    break
+                except MLimitExceeded as e:
+                    retries -= 1
+                    retry_after = getattr(e, "retry_after_ms", None)
+                    wait = (retry_after / 1000) if retry_after else 5
+                    self.log.warning(f"Rate limited inviting {user_id} to {room_id}, waiting {wait}s")
+                    await asyncio.sleep(wait)
+                    if retries == 0:
+                        self.log.error(f"Giving up on {room_id} after rate limit retries")
+                except Exception:
+                    self.log.exception(f"Failed to invite {user_id} to {room_id}")
+                    break
+            await asyncio.sleep(0.5)  # pace requests to avoid rate limiting
 
         if success_count > 0:
             async with self.database.acquire() as conn:

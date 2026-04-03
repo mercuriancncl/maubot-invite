@@ -17,6 +17,11 @@ invite_rooms:
 # If true, the bot DMs the user instead of replying publicly in the Welcome room.
 quiet_mode: false
 
+# If true, the bot will delete the user's trigger message and its own response
+# once the user accepts an invite and joins one of the invite_rooms.
+# The bot must have permission to redact messages in the welcome room for this to work.
+delete_after_join: false
+
 # Message sent after a successful invite.
 # {user} = their Matrix ID, {rooms} = number of rooms invited to
 success_message: "Hi {user}! 👋 I've sent you {rooms} invite(s) to our private community. Check your invites!"
